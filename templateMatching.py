@@ -5,6 +5,8 @@ from matplotlib import pyplot as plt
 from os import listdir
 import tensorflow as tf 
 import json
+from PIL import Image
+import pytesseract
 #We're working with numpy standards. For us, x refers to rows and y refers to columns. Opencv is oposite but what can you do
 
 #TODO Immediate: 
@@ -59,7 +61,7 @@ keep_prob = tf.placeholder(tf.float32)
 h_fc1_drop = tf.nn.dropout(h_fc1, keep_prob)
 y_conv = tf.matmul(h_fc1_drop, W_fc2) + b_fc2 #these are outputs not normalized yet
 
-y_probabilities = tf.nn.softmax(y_conv) #I think this should make it probabilities
+y_probabilities = tf.nn.softmax(y_conv) #I think this should make it probabilities, but it only makes sense if we feed in one image
 
 
 
@@ -119,11 +121,13 @@ def prepare(image): #doesn't include resizing to 0.5
 	angle = np.pi / 2.0 - max(thetaVotes, key=thetaVotes.get) #- np.pi / 2.0
 	print "angle is ", angle
 	rotatedImage = rotate_bound(thresh,angle)
+	cv2.imshow('houghlines',image)
+	cv2.waitKey(0)
 	return rotatedImage
 	#cv2.imshow("rotatedGray", rotatedImage)
 	#cv2.waitKey(0)
 	#cv2.imwrite("rotatedPage92.tiff", rotatedImage)
-	#cv2.imshow('houghlines',image)
+	
 
 def templateMatch(template, mainImage, sizes = [0.85, 1.15], numSizesToTry = 20):
 	minValue = np.inf
@@ -148,6 +152,9 @@ def templateMatch(template, mainImage, sizes = [0.85, 1.15], numSizesToTry = 20)
 					myRatio = (ratio[i], ratio[j])
 					myHappyTemplate = newSizeTemplate.copy()
 					#allOfIt = minMaxLoc
+		# if i % 5 == 0:
+		# 	cv2.imshow('step', findDarkValue(myRatio, minLoc,mainImage)[1])
+		# 	cv2.waitKey(0)
 	print "ratio is ", myRatio
 	return minValue, minLoc, myRatio, myHappyTemplate				
 	# print "min value ", minValue
@@ -169,45 +176,68 @@ def findDarkValue(myRatio, minLoc, mainImage):
 	#darkValue = {"30-Day Supply": 0, "90-Day Supply": 0, "Number of Additional Refills": 0, "Have Patient Contact My Office":0, "No Longer a Patient": 0, "Already Sent a Refill": 0, "Patient Unknown to this Office": 0, "Refill Too Soon": 0, "Other Reason for Denial": 0}
 	darkValue = {}
 	for key in checkBoxPixels:
-		pixels = calculatePixels(key, myRatio, minLoc)
-		#print mainImage[pixels[0]:pixels[1],pixels[2]:pixels[3]]
-		darkValue[key] = np.sum(mainImage[pixels[0]:pixels[1],pixels[2]:pixels[3]])
-		cv2.line(color, (pixels[2], pixels[0]), (pixels[3],pixels[0]), (0,0,255),2)
-		cv2.line(color, (pixels[2],pixels[0]), (pixels[2],pixels[1]), (0,0,255),2)
-		cv2.line(color, (pixels[2],pixels[1]), (pixels[3],pixels[1]), (0,0,255),2)
-		cv2.line(color, (pixels[3],pixels[1]), (pixels[3],pixels[0]), (0,0,255),2)
+		if key != 'Number of Additional Refills':
+			pixels = calculatePixels(key, myRatio, minLoc)
+			#print mainImage[pixels[0]:pixels[1],pixels[2]:pixels[3]]
+			darkValue[key] = np.sum(mainImage[pixels[0]:pixels[1],pixels[2]:pixels[3]])
+			cv2.line(color, (pixels[2], pixels[0]), (pixels[3],pixels[0]), (0,0,255),2)
+			cv2.line(color, (pixels[2],pixels[0]), (pixels[2],pixels[1]), (0,0,255),2)
+			cv2.line(color, (pixels[2],pixels[1]), (pixels[3],pixels[1]), (0,0,255),2)
+			cv2.line(color, (pixels[3],pixels[1]), (pixels[3],pixels[0]), (0,0,255),2)
 	return darkValue, color
 
-def readNumber(myRatio, minLoc, mainImage, color, hopSize): #input the pixels where we should be hunting
+def readNumber(myHappyTemplate, myRatio, minLoc, mainImage, color, hopSize): #input the pixels where we should be hunting
 	#first before we get fancy let's just slide among these pixels. Then we'll get fancy. 
 	#we're working in terms of a numpy array, so topLeft will be (row, column)
 	assert 0< hopSize <= 28
+	new = mainImage.copy()
+	new[minLoc[0]:minLoc[0]+myHappyTemplate.shape[0], minLoc[1]:minLoc[1]+myHappyTemplate.shape[1]] -= myHappyTemplate
 	#in the order xtopleft xbottomright ytopleft ybottomright
 	pixels = calculatePixels("Number of Additional Refills", myRatio, minLoc)
-	pixels[0] -= 1
-	pixels[1] += 1
+	pixels[0] -= 4
+	pixels[1] += 4
+	pixels[2] -= 4
+	pixels[3] += 4
 	height = pixels[1] - pixels[0] #this will be the length of our square as we slide forth and prosper
 	#we want to resize it to 28 in height, same aspect ratio
 	#print "height is ", height
 
 	resizeRatio = 28.0/height
 	#print "resize ratio is ", resizeRatio
-	rectangle = mainImage[pixels[0]:pixels[1],pixels[2]:pixels[3]].copy()
-	rectangle = np.pad(rectangle, ((2,2), (0,0)), 'constant')
-	resizeRatio = 28.0 / (height + 4)
+	rectangle = new[pixels[0]:pixels[1],pixels[2]:pixels[3]].copy()
+	#ok first we're gonna try subtracting it out. This will be difficult without my tongue
+	#rectangle = np.pad(rectangle, ((2,2), (0,0)), 'constant')
+	resizeRatio = 28.0 / height
 	#print "thing that's failing is ", int(resizeRatio * rectangle.shape[1])
 	rectangle = cv2.resize(rectangle, (int(resizeRatio * rectangle.shape[1]), 28)) #not gonna bother with interpolation here
 	width = rectangle.shape[1]
-	print "rectangle size is ", rectangle.shape
+	#print "rectangle size is ", rectangle.shape
 
+	#alternative plan awaits! 
+	#center of mass
+	#ok I just found out this is a thing that exists... rip me cv2.moments() 
+	columns = rectangle.sum(0) #sum down each column
+	rows = rectangle.sum(1) #sum across each row
+	colA = np.arange(columns.shape[0])
+	rowA = np.arange(rows.shape[0])
+
+	centerCol = int(np.sum(columns*colA) / float(np.sum(columns)))
+	centerRow = int(np.sum(rows*rowA) / float(np.sum(rows)))
+
+	squareToLookAt = new[ int(pixels[0] + (centerRow - 14) * resizeRatio): int(pixels[0] + resizeRatio * (centerRow + 14)), int(pixels[2] + resizeRatio * (centerCol - 14)): int(pixels[2] + resizeRatio * (centerCol + 14))]
+	squareToLookAt = cv2.resize(squareToLookAt, (28,28))
+	cv2.imshow("the newest square", squareToLookAt)
+	cv2.waitKey(0)
+
+	#####################
 	#Ok now what we want to do is pad our rectangle so that we can slide our box along some happy amount of times.
 	#hopSize time here we go
 	#n is number of windows we're gonna try fitting
 	n = int(np.ceil((width - 28) / float(hopSize) + 1))
 	#p is total amount of padding we need
 	p = hopSize * (n-1) + 28 - width
-	print "p is ", p
-	print "n is ", n
+	#print "p is ", p
+	#print "n is ", n
 	paddedRectangle = np.pad(rectangle, ((0,0), (p/2, p-p/2)), 'constant') #0 padding ftw
 	#cool beans now we're ready to roll lez doo diz
 	#we'll do a for loop for now, there are sooooo many ways we can make this code faster let me tell you my friend
@@ -220,9 +250,15 @@ def readNumber(myRatio, minLoc, mainImage, color, hopSize): #input the pixels wh
 		#Alright for now let's assume the numbers are... well what we hope they are broski
 		myNewX[i,:,:] = square
 	#ok so now myNewX is what x should be in our tensorflow model. so we believe. so we believe folks i'm not exactly sure 
-	print "myNewX.shape is ", myNewX.shape
+	#print "myNewX.shape is ", myNewX.shape
 	with tf.Session() as sess:
 		yConv = sess.run(y_conv, feed_dict = {x: myNewX, keep_prob: 1.0})
+		altX = np.empty((1,28,28))
+		altX[0,:,:] = squareToLookAt
+		yOther = sess.run(y_probabilities, feed_dict = {x: altX, keep_prob: 1.0})
+		yOtherC = sess.run(y_conv, feed_dict = {x: altX, keep_prob: 1.0})
+	print "yother is ", yOther
+	print "yOtherC is ", yOtherC
 	print yConv
 	return yConv
 
@@ -253,7 +289,8 @@ else:
 
 #set up template that's been scaled by 0.5 already
 
-template = cv2.imread('rotatedTemplate.tiff') 
+template = cv2.imread('../rotatedTemplate.tiff') 
+#print template
 template = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
 template = cv2.bitwise_not(template)
 ret, template = cv2.threshold(template, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
@@ -267,6 +304,8 @@ template = template[380:621, 30:800] #We manually figured out these pixels
 for image in images:
 	image = cv2.resize(image,None, fx=0.5, fy = 0.5, interpolation = cv2.INTER_AREA)
 	mainImage = prepare(image)
+	#print pytesseract.image_to_string(Image.fromarray(image))
+	#well tesseract is being sucky
 	#print "rotated image shape is ", mainImage.shape
 	#print "template shape is ", template.shape
 	minValue, minLoc, myRatio, myHappyTemplate	= templateMatch(template, mainImage, numSizesToTry = 30)
@@ -275,8 +314,20 @@ for image in images:
 	print darkValue
 	print "max is ", max(darkValue, key=darkValue.get)
 	print "\n"
-	yprob = readNumber(myRatio, minLoc, mainImage, color, 8)
-	cv2.imshow("withLines", color)
+
+	# ret,thresh = cv2.threshold(mainImage,127,255,0)
+	# im2, contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+	# print "contours ", contours
+	# cv2.imshow("im2", im2)
+	# cv2.waitKey()
+	# cont = cv2.drawContours(cv2.cvtColor(im2, cv2.COLOR_GRAY2RGB), contours, -1, (255,255,0), 3)
+	# cv2.imshow('cont', cont)
+	# cv2.waitKey(0)
+	yprob = readNumber(myHappyTemplate, myRatio, minLoc, mainImage, color, 8)
+	print "max number is ", yprob.max(), " on picture ", yprob.argmax()/10
+	print "we predict it is ", yprob.argmax() % 10
+	
+	cv2.imshow("step", color)
 	cv2.waitKey(0)
 	# cv2.imshow("before", mainImage) 
 	# justForShow = mainImage.copy()
