@@ -6,14 +6,16 @@ import json
 from PIL import Image
 import pytesseract
 
-def kfill(im, k, numPasses):
+def kfill(im, k, numPasses, alreadyInverted):
 	assert k >= 5 
 	image = im.copy()
 	#dumb python method that will be slow. I hate python for loops :(
 	#i give up we're killing our beautiful grayscale we once knew and loved. 
-	image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+	if len(image.shape) == 3:
+		image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 	ret, image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-	image = cv2.bitwise_not(image)
+	if not alreadyInverted:
+		image = cv2.bitwise_not(image)
 	cv2.imshow('original image', image)
 	cv2.waitKey(0)
 	for i in range(numPasses):
@@ -61,14 +63,14 @@ def passOver(im, k, high): #high is True if we're turning things text colored, F
 	else:
 		return cv2.bitwise_not(anotherCopy)
 
-def test(image):
-	image = cv2.resize(image, None, fx=0.5,fy=0.5,interpolation = cv2.INTER_AREA)
-	newImage = kfill(image, 5, 4)
+def test(image, numPasses, alreadyInverted):
+	image = cv2.resize(image, None, fx=1,fy=1,interpolation = cv2.INTER_AREA)
+	newImage = kfill(image, 5, numPasses, alreadyInverted)
 	cv2.imshow('newimage',newImage)
 	cv2.waitKey(0)
 
-imageForTest = 'forDemo/moreBadLines.tiff'
-test(cv2.imread(imageForTest))
+#imageForTest = 'forDemo/moreBadLines.tiff'
+#test(cv2.imread(imageForTest))
 
 
 

@@ -7,6 +7,9 @@ import tensorflow as tf
 import json
 from PIL import Image
 import pytesseract
+from lineRemoval import removeLines
+from subprocess import call 
+
 #We're working with numpy standards. For us, x refers to rows and y refers to columns. Opencv is oposite but what can you do
 
 #TODO Immediate: 
@@ -96,12 +99,17 @@ def rotate_bound(image, angle): #angle in rad
     warped = cv2.warpAffine(image, M, (nW, nH)) #alas this won't be BW anymore but it's pretty illegible if you make it BW so... rip
     return warped
 
-def prepare(image): #doesn't include resizing to 0.5
+def prepare(image): #this will resize to 0.5 at the end
 	gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 	gray = cv2.bitwise_not(gray)
 	ret, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+	#line noise removal
+	thresh = removeLines(thresh)
+	#cv2.imshow('after line removal', thresh)
+
 	#print thresh[50:200, 200:400]
-	lines = cv2.HoughLines(thresh,1,np.pi/(360*2), int(thresh.shape[1]/2.2))
+	lines = cv2.HoughLines(thresh,1,np.pi/(360*3), int(thresh.shape[1]/2.2))
 	thetaVotes = {}
 	for line in lines:
 		for rho,theta in line:
@@ -121,9 +129,30 @@ def prepare(image): #doesn't include resizing to 0.5
 	angle = np.pi / 2.0 - max(thetaVotes, key=thetaVotes.get) #- np.pi / 2.0
 	print "angle is ", angle
 	rotatedImage = rotate_bound(thresh,angle)
-	cv2.imshow('houghlines',image)
-	cv2.waitKey(0)
-	return rotatedImage
+	#cv2.imshow('after our rotation det',rotatedImage)
+
+	#tesseract time, for some reason tesseract hates us and reasonable file extensions. We have to make a temporary image. It sucks
+	#Do .05 and .95 to attempt to take out the upside-down text that sometimes appears. Idk if it matters but it def. doesn't hurt
+	cv2.imwrite('temp.tiff', rotatedImage[int(rotatedImage.shape[0]*.05):int(rotatedImage.shape[0]*.95), int(rotatedImage.shape[1]*.05): int(rotatedImage.shape[1]*.95)])
+	call(["tesseract", "temp.tiff", "../myTestOutput", "-l", "eng", "--psm", "0"])
+	with open('../myTestOutput.osd') as myFile:
+		output = myFile.readlines()
+	print output
+	degrees = [int(s) for s in output[1].split() if s.isdigit()][0]
+	print "degrees is ", degrees
+	if degrees: #there should be degrees but I'm not taking any chances! 
+		rotatedImage = rotate_bound(rotatedImage,np.deg2rad(degrees))
+
+	#cv2.imshow('after tess',rotatedImage)
+	if rotatedImage.shape[1] > rotatedImage.shape[0]:
+		print "it needs to be scaled"
+		rotatedImage = cv2.resize(rotatedImage, dsize=(int(1728), int(2131)), interpolation = cv2.INTER_NEAREST)
+
+	#print "after scaling the size is ", finalImage.shape
+	finalImage = cv2.resize(rotatedImage,None, fx=0.5, fy = 0.5, interpolation = cv2.INTER_AREA)
+	#cv2.imshow('houghlines',image)
+	#cv2.waitKey(0)
+	return finalImage
 	#cv2.imshow("rotatedGray", rotatedImage)
 	#cv2.waitKey(0)
 	#cv2.imwrite("rotatedPage92.tiff", rotatedImage)
@@ -302,46 +331,50 @@ template = template[380:621, 30:800] #We manually figured out these pixels
 
 
 for image in images:
-	image = cv2.resize(image,None, fx=0.5, fy = 0.5, interpolation = cv2.INTER_AREA)
+	print "the image starts as size ", image.shape
+	#image = cv2.resize(image,None, fx=0.5, fy = 0.5, interpolation = cv2.INTER_AREA)
+	print "after .5ness the image has size ", image.shape
+	cv2.imshow('original', image)
 	mainImage = prepare(image)
-	#print pytesseract.image_to_string(Image.fromarray(image))
-	#well tesseract is being sucky
-	#print "rotated image shape is ", mainImage.shape
-	#print "template shape is ", template.shape
-	minValue, minLoc, myRatio, myHappyTemplate	= templateMatch(template, mainImage, numSizesToTry = 30)
 
-	darkValue, color = findDarkValue(myRatio, minLoc, mainImage)
-	print darkValue
-	print "max is ", max(darkValue, key=darkValue.get)
-	print "\n"
-
-	# ret,thresh = cv2.threshold(mainImage,127,255,0)
-	# im2, contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
-	# print "contours ", contours
-	# cv2.imshow("im2", im2)
-	# cv2.waitKey()
-	# cont = cv2.drawContours(cv2.cvtColor(im2, cv2.COLOR_GRAY2RGB), contours, -1, (255,255,0), 3)
-	# cv2.imshow('cont', cont)
-	# cv2.waitKey(0)
-	yprob = readNumber(myHappyTemplate, myRatio, minLoc, mainImage, color, 8)
-	print "max number is ", yprob.max(), " on picture ", yprob.argmax()/10
-	print "we predict it is ", yprob.argmax() % 10
-	
-	cv2.imshow("step", color)
+	cv2.imshow('final', mainImage)
 	cv2.waitKey(0)
-	# cv2.imshow("before", mainImage) 
-	# justForShow = mainImage.copy()
-	# justForShow[minLoc[0]:minLoc[0] + myHappyTemplate.shape[0], minLoc[1]:minLoc[1] + myHappyTemplate.shape[1]] += myHappyTemplate
-	# cv2.imshow("replaced", justForShow) 
-	# cv2.imwrite("justForShow.tiff", justForShow)
+
+
+	# minValue, minLoc, myRatio, myHappyTemplate	= templateMatch(template, mainImage, numSizesToTry = 30)
+
+	# darkValue, color = findDarkValue(myRatio, minLoc, mainImage)
+	# print darkValue
+	# print "max is ", max(darkValue, key=darkValue.get)
+	# print "\n"
+
+	# # ret,thresh = cv2.threshold(mainImage,127,255,0)
+	# # im2, contours, hierarchy = cv2.findContours(thresh,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+	# # print "contours ", contours
+	# # cv2.imshow("im2", im2)
+	# # cv2.waitKey()
+	# # cont = cv2.drawContours(cv2.cvtColor(im2, cv2.COLOR_GRAY2RGB), contours, -1, (255,255,0), 3)
+	# # cv2.imshow('cont', cont)
+	# # cv2.waitKey(0)
+	# yprob = readNumber(myHappyTemplate, myRatio, minLoc, mainImage, color, 8)
+	# print "max number is ", yprob.max(), " on picture ", yprob.argmax()/10
+	# print "we predict it is ", yprob.argmax() % 10
+	
+	# cv2.imshow("step", color)
+	# cv2.waitKey(0)
+	# # cv2.imshow("before", mainImage) 
+	# # justForShow = mainImage.copy()
+	# # justForShow[minLoc[0]:minLoc[0] + myHappyTemplate.shape[0], minLoc[1]:minLoc[1] + myHappyTemplate.shape[1]] += myHappyTemplate
+	# # cv2.imshow("replaced", justForShow) 
+	# # cv2.imwrite("justForShow.tiff", justForShow)
 
 	
-	#cv2.imshow("result", result)
-	#cv2.waitKey(0)
+	# #cv2.imshow("result", result)
+	# #cv2.waitKey(0)
 
-	#mainImage[minMaxLoc[2][0] : minMaxLoc[2][0]+template.shape[0] , minMaxLoc[2][1] : minMaxLoc[2][1]+template.shape[1] ] = tempThresh
-	#cv2.imshow("mainImage", mainImage)
-	#cv2.waitKey(0)
+	# #mainImage[minMaxLoc[2][0] : minMaxLoc[2][0]+template.shape[0] , minMaxLoc[2][1] : minMaxLoc[2][1]+template.shape[1] ] = tempThresh
+	# #cv2.imshow("mainImage", mainImage)
+	# #cv2.waitKey(0)
 
 
 
