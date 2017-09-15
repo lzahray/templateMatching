@@ -136,8 +136,8 @@ def prepare(image): #this will resize to 0.5 at the end
 	#cv2.imshow('after our rotation det',rotatedImage)
 	#tesseract time, for some reason tesseract hates us and reasonable file extensions. We have to make a temporary image. It sucks
 	#Do .05 and .95 to attempt to take out the upside-down text that sometimes appears. Idk if it matters but it def. doesn't hurt
-	cv2.imwrite('temp.tiff', rotatedImage[int(rotatedImage.shape[0]*.05):int(rotatedImage.shape[0]*.95), int(rotatedImage.shape[1]*.05): int(rotatedImage.shape[1]*.95)])
-	call(["tesseract", "temp.tiff", "../myTestOutput", "-l", "eng", "--psm", "0"])
+	cv2.imwrite('../temp.tiff', rotatedImage[int(rotatedImage.shape[0]*.05):int(rotatedImage.shape[0]*.95), int(rotatedImage.shape[1]*.05): int(rotatedImage.shape[1]*.95)])
+	call(["tesseract", "../temp.tiff", "../myTestOutput", "-l", "eng", "--psm", "0"])
 	with open('../myTestOutput.osd') as myFile:
 		output = myFile.readlines()
 	#print output
