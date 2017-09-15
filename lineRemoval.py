@@ -29,8 +29,8 @@ def removeLines(thresh, amountRatio=.55, minLineLengthRatio = 0.93, maxLineGap =
 		#image = np.rot90(image)
 		#image = image.copy()
 		thresh = thresh.copy()
-		print "we rotated"
-	#imageCopy = image.copy()
+		#print "we rotated"
+	imageCopy = cv2.cvtColor(thresh,cv2.COLOR_GRAY2RGB)
 	#cv2.imshow('original', image)
 	#cv2.waitKey(0)
 
@@ -49,6 +49,7 @@ def removeLines(thresh, amountRatio=.55, minLineLengthRatio = 0.93, maxLineGap =
 			for x1, y1, x2, y2 in line: #for some reason there's an extra layer within this list. I don't know why, I'm just a hairy guy. Don't ask me why **don't know**
 				#since this is a long line we're happy no matter what angle it is :)
 				cv2.line(thresh,(x1,y1),(x2,y2),0,1)
+				cv2.line(imageCopy,(x1,y1),(x2,y2),(0,0,0),1)
 				finalLines.append((x1,y1,x2,y2))
 	if linesShort is not None:
 		for line in linesShort:
@@ -63,12 +64,18 @@ def removeLines(thresh, amountRatio=.55, minLineLengthRatio = 0.93, maxLineGap =
 					#angle = np.pi/2.0
 				if abs(angle) < np.arccos(thresh.shape[1]/thresh.shape[0]): #if we're horizontal enough on the document 
 					cv2.line(thresh,(x1,y1),(x2,y2),0,1)
+					cv2.line(imageCopy,(x1,y1),(x2,y2),(255,0,0),1)
 					finalLines.append((x1,y1,x2,y2))
-				else:
-					#print "the following line was a nogo: ", x1, y1, x2, y2
-					cv2.line(thresh,(x1,y1),(x2,y2),0,1)
-	print finalLines
-	return thresh
+				# else:
+				# 	#print "the following line was a nogo: ", x1, y1, x2, y2
+				# 	cv2.line(thresh,(x1,y1),(x2,y2),0,1)
+	#print finalLines
+	# cv2.imshow('colorful',imageCopy)
+	# cv2.waitKey(0)
+	linesFound = False
+	if len(finalLines) > 0:
+		linesFound = True
+	return thresh, linesFound
 	#cv2.imshow('houghlines', image)
 	#cv2.waitKey(0)
 
